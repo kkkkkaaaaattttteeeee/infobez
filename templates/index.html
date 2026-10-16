@@ -67,7 +67,6 @@
   .file-label:hover{border-color:var(--accent);color:var(--text)}
   .file-label input{display:none}
 
-  /* Бейдж */
   .badge{
     display:inline-block;padding:4px 10px;border-radius:100px;
     font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
@@ -116,7 +115,6 @@
     transform:none; filter:none;
   }
 
-  /* Лог */
   .log-card{margin-top:20px}
   .log-content{
     background:#0a0e24;border:1px solid var(--line);border-radius:10px;
@@ -143,7 +141,6 @@
   </header>
 
   <div class="grid">
-    <!-- ЛЕВАЯ КОЛОНКА: ввод -->
     <div class="card">
       <h2>Ввод текста</h2>
       <textarea id="input" placeholder="Вставьте текст для анализа. Например:&#10;Сотрудник ФНС передал данные о налоговых платежах компании её конкуренту."></textarea>
@@ -166,7 +163,6 @@
       </div>
     </div>
 
-    <!-- ПРАВАЯ КОЛОНКА: результат -->
     <div class="card">
       <h2>Результат анализа</h2>
       <div id="result">
@@ -175,7 +171,6 @@
     </div>
   </div>
 
-  <!-- ЛОГ -->
   <div class="card log-card">
     <h2>Журнал инцидентов (security_log.txt)</h2>
     <div class="row" style="margin-top:0;margin-bottom:12px">
@@ -190,10 +185,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// Глобальное состояние — хранит последний результат анализа
 let currentResult = null;
 
-// Примеры для быстрой загрузки
 const examples = [
   "Сотрудник ФНС передал данные о налоговых платежах компании её конкуренту.",
   "Привет! Скидываю тебе базу Пдн наших клиентов, посмотри, может пригодятся для рассылки.",
@@ -201,9 +194,7 @@ const examples = [
   "Дружище, я видел, как разворачивают пусковую установку, фотку скину."
 ];
 
-function loadExample(i){
-  document.getElementById('input').value = examples[i];
-}
+function loadExample(i){ document.getElementById('input').value = examples[i]; }
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -220,7 +211,6 @@ function badgeClass(type){
   return 'b-none';
 }
 
-// Клиентская маска — для мгновенной реакции кнопки «Маскировать»
 function maskClient(text){
   return text
     .replace(/\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\b/g, '[ФИО]')
@@ -231,9 +221,7 @@ function maskClient(text){
 }
 
 function renderResult(r){
-  // сохраняем текущий результат для кнопок действий
   currentResult = r;
-
   const box = document.getElementById('result');
 
   let lawsHtml = '';
@@ -270,7 +258,6 @@ function renderResult(r){
        <div class="log-content" style="max-height:120px;margin-top:6px">${r.masked_text}</div>`
     : '';
 
-  // Кнопки действий — активны в зависимости от типа результата
   const isViolation = r.type === 'нарушение';
   const isManual = r.type === 'требуется ручная проверка';
   const isLegal = r.type === 'законное действие';
@@ -278,17 +265,14 @@ function renderResult(r){
   const actionsHtml = `
     <div class="actions-row">
       <button class="ghost" onclick="doAction('deleted')"
-              ${(!isViolation && !isManual) ? 'disabled' : ''}
-              title="Удалить опасный текст полностью">
+              ${(!isViolation && !isManual) ? 'disabled' : ''}>
         🗑 Удалить
       </button>
       <button class="ghost" onclick="doAction('masked')"
-              ${(!isViolation && !isLegal) ? 'disabled' : ''}
-              title="Заменить чувствительные данные на маски">
+              ${(!isViolation && !isLegal) ? 'disabled' : ''}>
         🎭 Маскировать
       </button>
-      <button class="ghost" onclick="doAction('ignored')"
-              title="Оставить как есть (риск принят оператором)">
+      <button class="ghost" onclick="doAction('ignored')">
         ✅ Ничего не делать
       </button>
     </div>`;
@@ -313,6 +297,11 @@ async function doAction(kind){
   if(!currentResult){ showToast('Сначала выполните анализ'); return; }
   const text = document.getElementById('input').value;
 
+  // СОХРАНЯЕМ тип ДО возможного обнуления currentResult,
+  // чтобы в лог попал корректный тип нарушения
+  const savedType = currentResult.type;
+  const savedMasked = currentResult.masked_text;
+
   if(kind === 'deleted'){
     document.getElementById('input').value = '';
     document.getElementById('result').innerHTML =
@@ -321,18 +310,16 @@ async function doAction(kind){
     showToast('Текст удалён, действие записано в журнал');
   }
   else if(kind === 'masked'){
-    const masked = currentResult.masked_text || maskClient(text);
+    const masked = savedMasked || maskClient(text);
     document.getElementById('input').value = masked;
-    currentResult.masked_text = maskClient(masked);
-    // перерисуем результат, но без повторного логирования
-    renderResult(currentResult);
+    if(currentResult) currentResult.masked_text = maskClient(masked);
+    if(currentResult) renderResult(currentResult);
     showToast('Чувствительные данные замаскированы');
   }
   else if(kind === 'ignored'){
     showToast('Оператор принял риск, действий не требуется');
   }
 
-  // Пишем действие оператора в лог на сервере
   try{
     await fetch('/api/action', {
       method: 'POST',
@@ -340,7 +327,7 @@ async function doAction(kind){
       body: JSON.stringify({
         action: kind,
         text: kind === 'deleted' ? '' : text,
-        type: currentResult ? currentResult.type : 'unknown'
+        type: savedType   // <-- всегда корректный
       })
     });
     loadLog();
@@ -406,7 +393,6 @@ document.getElementById('fileInput').addEventListener('change', e=>{
   if(f) analyzeFile(f);
 });
 
-// Автозагрузка журнала при открытии
 loadLog();
 </script>
 </body>
