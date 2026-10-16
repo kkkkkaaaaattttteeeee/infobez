@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Анализатор конфиденциальности</title>
+<style>
+  :root{
+    --bg:#0f1220; --card:#1a1f35; --card-2:#232a48;
+    --text:#e8ecff; --muted:#95a0c4; --line:#2b3358;
+    --accent:#5b8cff; --accent-2:#7c5bff;
+    --ok:#2ecc71; --warn:#f5b041; --bad:#e74c3c;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:radial-gradient(1200px 600px at 10% -10%, #1b2450 0%, transparent 60%),
+               radial-gradient(900px 500px at 100% 0%, #2b1b50 0%, transparent 55%),
+               var(--bg);
+    color:var(--text); min-height:100vh;
+  }
+  .app{max-width:1200px;margin:0 auto;padding:28px 20px 60px}
+  header h1{
+    margin:0 0 4px; font-size:26px; font-weight:600;
+    background:linear-gradient(90deg,#fff,#a9b8ff);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  header p{margin:0 0 22px;color:var(--muted);font-size:14px}
+
+  .grid{display:grid;grid-template-columns:1.1fr 1fr;gap:20px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+
+  .card{
+    background:linear-gradient(180deg,var(--card),var(--card-2));
+    border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px; box-shadow:0 10px 40px rgba(0,0,0,.25);
+  }
+  .card h2{margin:0 0 12px;font-size:16px;color:#cdd6ff;font-weight:600}
+
+  textarea{
+    width:100%;min-height:180px;resize:vertical;
+    background:#0e1330;color:var(--text);
+    border:1px solid var(--line);border-radius:10px;
+    padding:12px;font-family:inherit;font-size:14px;line-height:1.5;
+  }
+  textarea:focus{outline:none;border-color:var(--accent)}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  button{
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    border:none;color:#fff;padding:10px 18px;border-radius:10px;
+    cursor:pointer;font-weight:600;font-size:14px;transition:.15s;
+  }
+  button:hover{transform:translateY(-1px);filter:brightness(1.1)}
+  button.ghost{
+    background:transparent;border:1px solid var(--line);color:var(--text);
+  }
+  button.ghost:hover{border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+  .file-label{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:9px 14px;border:1px dashed var(--line);border-radius:10px;
+    cursor:pointer;color:var(--muted);font-size:13px;
+  }
+  .file-label:hover{border-color:var(--accent);color:var(--text)}
+  .file-label input{display:none}
+
+  /* Бейдж */
+  .badge{
+    display:inline-block;padding:4px 10px;border-radius:100px;
+    font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
+  }
+  .b-violation{background:rgba(231,76,60,.15);color:var(--bad);border:1px solid rgba(231,76,60,.4)}
+  .b-legal{background:rgba(46,204,113,.15);color:var(--ok);border:1px solid rgba(46,204,113,.4)}
+  .b-manual{background:rgba(245,176,65,.15);color:var(--warn);border:1px solid rgba(245,176,65,.4)}
+  .b-none{background:rgba(149,160,196,.15);color:var(--muted);border:1px solid rgba(149,160,196,.35)}
+
+  .risk{margin-top:10px}
+  .risk-bar{height:8px;background:#0e1330;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .risk-fill{height:100%;width:0;transition:width .4s ease;
+    background:linear-gradient(90deg,#2ecc71,#f5b041,#e74c3c)}
+
+  .law{
+    border-left:3px solid var(--accent);
+    padding:8px 12px;margin:8px 0;background:rgba(91,140,255,.06);
+    border-radius:6px;font-size:13px;line-height:1.5;
+  }
+  .law.bad{border-color:var(--bad);background:rgba(231,76,60,.07)}
+  .law.good{border-color:var(--ok);background:rgba(46,204,113,.06)}
+  .law .code{font-weight:700;color:#d7e0ff}
+  .law .art{color:var(--muted);font-size:12px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{
+    background:#0e1330;border:1px solid var(--line);
+    padding:4px 10px;border-radius:100px;font-size:12px;color:#c6d0ff;
+  }
+  .chip.cat{background:rgba(91,140,255,.1);border-color:rgba(91,140,255,.35)}
+
+  .empty{color:var(--muted);font-size:13px;padding:20px 0;text-align:center}
+
+  .questions{margin:10px 0 0 18px;color:var(--warn);font-size:13px;line-height:1.6}
+  .summary{
+    margin-top:12px;padding:10px 12px;border-radius:8px;
+    background:rgba(91,140,255,.08);border:1px solid rgba(91,140,255,.25);
+    font-size:13px;
+  }
+
+  .actions-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .actions-row button:disabled{
+    opacity:.35; cursor:not-allowed; transform:none;
+  }
+  .actions-row button:disabled:hover{
+    transform:none; filter:none;
+  }
+
+  /* Лог */
+  .log-card{margin-top:20px}
+  .log-content{
+    background:#0a0e24;border:1px solid var(--line);border-radius:10px;
+    padding:12px;font-family:Consolas,'Courier New',monospace;
+    font-size:12px;color:#b8c3ea;max-height:260px;overflow:auto;
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .toast{
+    position:fixed;right:20px;bottom:20px;
+    background:#1a1f35;border:1px solid var(--line);
+    padding:12px 18px;border-radius:10px;font-size:13px;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;pointer-events:none;
+    transition:opacity .3s, transform .3s;transform:translateY(10px);
+  }
+  .toast.show{opacity:1;transform:translateY(0)}
+  .muted{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Анализатор конфиденциальной информации</h1>
+    <p>Логический вывод о наличии нарушения · 98-ФЗ, 146-ФЗ, 152-ФЗ, 323-ФЗ, 395-1-ФЗ</p>
+  </header>
+
+  <div class="grid">
+    <!-- ЛЕВАЯ КОЛОНКА: ввод -->
+    <div class="card">
+      <h2>Ввод текста</h2>
+      <textarea id="input" placeholder="Вставьте текст для анализа. Например:&#10;Сотрудник ФНС передал данные о налоговых платежах компании её конкуренту."></textarea>
+
+      <div class="row">
+        <button id="btnAnalyze">🔍 Анализировать</button>
+        <label class="file-label">
+          📎 Загрузить файл
+          <input type="file" id="fileInput" accept=".txt,.log,.md">
+        </label>
+        <button class="ghost" id="btnClear">Очистить</button>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <span class="muted">Примеры:</span>
+        <button class="ghost" onclick="loadExample(0)" style="padding:6px 10px;font-size:12px">Налоговая утечка</button>
+        <button class="ghost" onclick="loadExample(1)" style="padding:6px 10px;font-size:12px">ПДн</button>
+        <button class="ghost" onclick="loadExample(2)" style="padding:6px 10px;font-size:12px">Врачебная</button>
+        <button class="ghost" onclick="loadExample(3)" style="padding:6px 10px;font-size:12px">Гостайна</button>
+      </div>
+    </div>
+
+    <!-- ПРАВАЯ КОЛОНКА: результат -->
+    <div class="card">
+      <h2>Результат анализа</h2>
+      <div id="result">
+        <div class="empty">Введите текст и нажмите «Анализировать»</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ЛОГ -->
+  <div class="card log-card">
+    <h2>Журнал инцидентов (security_log.txt)</h2>
+    <div class="row" style="margin-top:0;margin-bottom:12px">
+      <button class="ghost" onclick="loadLog()">🔄 Обновить</button>
+      <button class="ghost" onclick="downloadLog()">⬇ Скачать</button>
+      <button class="ghost" onclick="clearLog()">🗑 Очистить</button>
+    </div>
+    <div class="log-content" id="logContent">Журнал пуст</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Глобальное состояние — хранит последний результат анализа
+let currentResult = null;
+
+// Примеры для быстрой загрузки
+const examples = [
+  "Сотрудник ФНС передал данные о налоговых платежах компании её конкуренту.",
+  "Привет! Скидываю тебе базу Пдн наших клиентов, посмотри, может пригодятся для рассылки.",
+  "Я работаю санитаром, по секрету скажу, что у твоего соседа ветрянка.",
+  "Дружище, я видел, как разворачивают пусковую установку, фотку скину."
+];
+
+function loadExample(i){
+  document.getElementById('input').value = examples[i];
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._id);
+  t._id = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function badgeClass(type){
+  if(type === 'нарушение') return 'b-violation';
+  if(type === 'законное действие') return 'b-legal';
+  if(type === 'требуется ручная проверка') return 'b-manual';
+  return 'b-none';
+}
+
+// Клиентская маска — для мгновенной реакции кнопки «Маскировать»
+function maskClient(text){
+  return text
+    .replace(/\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\b/g, '[ФИО]')
+    .replace(/\b\d{4,}\b/g, '[НОМЕР]')
+    .replace(/\b\d+[\d\s]*руб\b/gi, '[СУММА]')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL]')
+    .replace(/\+?\d[\d\s\-()]{9,}\d/g, '[ТЕЛЕФОН]');
+}
+
+function renderResult(r){
+  // сохраняем текущий результат для кнопок действий
+  currentResult = r;
+
+  const box = document.getElementById('result');
+
+  let lawsHtml = '';
+  if (r.laws && r.laws.length){
+    lawsHtml = r.laws.map(l => `
+      <div class="law ${l.is_violation ? 'bad' : 'good'}">
+        <div><span class="code">${l.is_violation ? '✗' : '✓'} ${l.code}</span>
+             <span class="art"> · ${l.article}</span></div>
+        <div>${l.reason}</div>
+      </div>`).join('');
+  } else {
+    lawsHtml = '<div class="muted" style="margin-top:8px">Применимых норм не найдено</div>';
+  }
+
+  const ent = r.entities || {};
+  const chips = (arr, cat) => (arr||[]).map(x => `<span class="chip ${cat?'cat':''}">${x}</span>`).join('');
+  const entitiesHtml = `
+    <div style="margin-top:12px">
+      <div class="muted">Субъекты:</div>
+      <div class="chips">${chips(ent.subjects, true) || '<span class="muted">—</span>'}</div>
+      <div class="muted" style="margin-top:8px">Объекты:</div>
+      <div class="chips">${chips(ent.objects, true) || '<span class="muted">—</span>'}</div>
+      <div class="muted" style="margin-top:8px">Действия:</div>
+      <div class="chips">${chips(ent.actions, false) || '<span class="muted">—</span>'}</div>
+      <div class="muted" style="margin-top:8px">Контекст:</div>
+      <div class="chips">${chips(ent.context, false) || '<span class="muted">—</span>'}</div>
+    </div>`;
+
+  const questionsHtml = (r.questions && r.questions.length)
+    ? `<div class="questions">${r.questions.map(q => `• ${q}`).join('<br>')}</div>` : '';
+
+  const maskedHtml = r.masked_text
+    ? `<div class="muted" style="margin-top:14px">Маскированный текст:</div>
+       <div class="log-content" style="max-height:120px;margin-top:6px">${r.masked_text}</div>`
+    : '';
+
+  // Кнопки действий — активны в зависимости от типа результата
+  const isViolation = r.type === 'нарушение';
+  const isManual = r.type === 'требуется ручная проверка';
+  const isLegal = r.type === 'законное действие';
+
+  const actionsHtml = `
+    <div class="actions-row">
+      <button class="ghost" onclick="doAction('deleted')"
+              ${(!isViolation && !isManual) ? 'disabled' : ''}
+              title="Удалить опасный текст полностью">
+        🗑 Удалить
+      </button>
+      <button class="ghost" onclick="doAction('masked')"
+              ${(!isViolation && !isLegal) ? 'disabled' : ''}
+              title="Заменить чувствительные данные на маски">
+        🎭 Маскировать
+      </button>
+      <button class="ghost" onclick="doAction('ignored')"
+              title="Оставить как есть (риск принят оператором)">
+        ✅ Ничего не делать
+      </button>
+    </div>`;
+
+  box.innerHTML = `
+    <span class="badge ${badgeClass(r.type)}">${r.type}</span>
+    <div class="risk">
+      <div class="muted">Оценка риска: ${r.risk_score}/100</div>
+      <div class="risk-bar"><div class="risk-fill" style="width:${r.risk_score}%"></div></div>
+    </div>
+    <div class="summary">${r.summary}</div>
+    <div style="margin-top:14px"><b style="font-size:14px">Найденные нормы</b></div>
+    ${lawsHtml}
+    ${questionsHtml}
+    ${entitiesHtml}
+    ${maskedHtml}
+    ${actionsHtml}
+  `;
+}
+
+async function doAction(kind){
+  if(!currentResult){ showToast('Сначала выполните анализ'); return; }
+  const text = document.getElementById('input').value;
+
+  if(kind === 'deleted'){
+    document.getElementById('input').value = '';
+    document.getElementById('result').innerHTML =
+      '<div class="empty">🗑 Текст удалён оператором. Инцидент зафиксирован в журнале.</div>';
+    currentResult = null;
+    showToast('Текст удалён, действие записано в журнал');
+  }
+  else if(kind === 'masked'){
+    const masked = currentResult.masked_text || maskClient(text);
+    document.getElementById('input').value = masked;
+    currentResult.masked_text = maskClient(masked);
+    // перерисуем результат, но без повторного логирования
+    renderResult(currentResult);
+    showToast('Чувствительные данные замаскированы');
+  }
+  else if(kind === 'ignored'){
+    showToast('Оператор принял риск, действий не требуется');
+  }
+
+  // Пишем действие оператора в лог на сервере
+  try{
+    await fetch('/api/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        action: kind,
+        text: kind === 'deleted' ? '' : text,
+        type: currentResult ? currentResult.type : 'unknown'
+      })
+    });
+    loadLog();
+  } catch(e){ /* игнорируем ошибку сети */ }
+}
+
+async function analyze(){
+  const text = document.getElementById('input').value.trim();
+  if(!text){ showToast('Введите текст'); return; }
+  const btn = document.getElementById('btnAnalyze');
+  btn.disabled = true; btn.textContent = '⏳ Анализ...';
+  try{
+    const res = await fetch('/api/analyze', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text})
+    });
+    const data = await res.json();
+    if(!res.ok){ showToast(data.error || 'Ошибка'); return; }
+    renderResult(data);
+    loadLog();
+  } catch(e){ showToast('Ошибка сети'); }
+  finally{ btn.disabled = false; btn.textContent = '🔍 Анализировать'; }
+}
+
+async function analyzeFile(file){
+  const fd = new FormData();
+  fd.append('file', file);
+  try{
+    const res = await fetch('/api/analyze_file', {method:'POST', body: fd});
+    const data = await res.json();
+    if(!res.ok){ showToast(data.error || 'Ошибка'); return; }
+    if(data.source_text) document.getElementById('input').value = data.source_text;
+    renderResult(data);
+    loadLog();
+  } catch(e){ showToast('Ошибка сети'); }
+}
+
+async function loadLog(){
+  const res = await fetch('/api/log');
+  const data = await res.json();
+  const box = document.getElementById('logContent');
+  box.textContent = data.content && data.content.trim() ? data.content : 'Журнал пуст';
+}
+
+async function clearLog(){
+  await fetch('/api/log/clear', {method:'POST'});
+  loadLog();
+  showToast('Журнал очищен');
+}
+
+function downloadLog(){ window.location.href = '/api/log/download'; }
+
+document.getElementById('btnAnalyze').addEventListener('click', analyze);
+document.getElementById('btnClear').addEventListener('click', ()=>{
+  document.getElementById('input').value = '';
+  document.getElementById('result').innerHTML =
+    '<div class="empty">Введите текст и нажмите «Анализировать»</div>';
+  currentResult = null;
+});
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(f) analyzeFile(f);
+});
+
+// Автозагрузка журнала при открытии
+loadLog();
+</script>
+</body>
+</html>
