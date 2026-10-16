@@ -97,7 +97,6 @@ def mask_text(text: str) -> str:
 # =====================================================================
 
 def log_incident(result: dict, original_text: str):
-    """Записывает автоматическое срабатывание анализатора."""
     masked = mask_text(original_text)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(
@@ -107,7 +106,6 @@ def log_incident(result: dict, original_text: str):
 
 
 def log_operator_action(action: str, text: str, vtype: str):
-    """Записывает действие оператора по инциденту."""
     masked = mask_text(text) if text else "[текст удалён оператором]"
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(
@@ -128,13 +126,7 @@ def read_log() -> str:
 # =====================================================================
 
 def analyze_text(text: str) -> dict:
-    """
-    Возвращает структуру:
-    {
-      type, violation, laws, entities, manual, questions,
-      action, masked_text, risk_score, summary
-    }
-    """
+    """Применяет базу правил и возвращает структурированный вывод."""
     low = text.lower()
     entities = extract_entities(text)
     laws = []          # [{code, article, reason, is_violation}]
@@ -148,6 +140,25 @@ def analyze_text(text: str) -> dict:
                or "соглашение о неразглашении" in low)
     has_written_req = ("письменн" in low and ("запрос" in low or "требован" in low))
     has_audit = ("аудит" in low or "due diligence" in low or "внешн" in low)
+
+    # --- медицина: расширенный контекст ---
+    med_ctx = any(w in low for w in [
+        "врач", "пациент", "медицинск", "больниц", "санитар", "медик",
+        "ветрянк", "вич", "диагноз", "заболева"
+    ])
+
+    # --- ПДн: расширенный контекст (включая «данные») ---
+    pdn_mentioned = ("пдн" in low or "персональн" in low
+                     or ("база" in low and "клиент" in low)
+                     or ("данн" in low and ("клиент" in low or "пациент" in low)))
+    transfer = any(w in low for w in ["скид", "переда", "направл", "предостав"])
+
+    # --- налоговая тайна ---
+    tax_ctx = "фнс" in low or "налогов" in low
+    personal_source = any(w in low for w in [
+        "сестра", "брат", "друг", "знаком", "родствен",
+        "муж", "жена", "сын", "дочь", "отец", "мать", "сват", "кум"
+    ])
 
     # ============ ПРАВИЛО 1. NDA + аудит → законно ============
     if has_nda and has_audit:
@@ -176,29 +187,32 @@ def analyze_text(text: str) -> dict:
             "is_violation": True,
         })
 
-    # ============ ПРАВИЛО 4. ПДн + передача без согласия ============
-    pdn = ("пдн" in low or "персональн" in low
-           or ("база" in low and "клиент" in low))
-    if pdn and ("скид" in low or "переда" in low or "направл" in low) \
-            and not has_consent:
-        laws.append({
-            "code": "152-ФЗ", "article": "ст. 6, 9",
-            "reason": "Передача персональных данных без согласия субъекта",
-            "is_violation": True,
-        })
-
-    # ============ ПРАВИЛО 5. ПДн + письменное согласие → законно ============
-    if pdn and has_written_consent and ("передач" in low or "переда" in low
-                                        or "предостав" in low):
-        laws.append({
-            "code": "152-ФЗ", "article": "ст. 9",
-            "reason": "Законно: письменное согласие субъекта на передачу данных",
-            "is_violation": False,
-        })
+    # ============ ПРАВИЛА 4+5. Персональные данные (152-ФЗ) ============
+    # Объединённое правило: ПДн + передача
+    #   - с письменным согласием → законно
+    #   - без согласия → нарушение
+    if pdn_mentioned and transfer:
+        if has_written_consent:
+            laws.append({
+                "code": "152-ФЗ", "article": "ст. 9",
+                "reason": "Законно: письменное согласие субъекта на передачу данных",
+                "is_violation": False,
+            })
+        elif not has_consent:
+            laws.append({
+                "code": "152-ФЗ", "article": "ст. 6, 9",
+                "reason": "Передача персональных данных без согласия субъекта",
+                "is_violation": True,
+            })
+        else:
+            # согласие есть, но не письменное — на ручную проверку
+            manual = True
+            questions.append(
+                "Есть ли письменное согласие субъекта на передачу его данных? "
+                "Устное согласие не является надлежащим основанием по 152-ФЗ."
+            )
 
     # ============ ПРАВИЛО 6. Врачебная тайна + полиция + устный ============
-    med_ctx = ("врач" in low or "пациент" in low
-               or "медицинск" in low or "больниц" in low)
     if med_ctx and "полици" in low and not has_written_req:
         laws.append({
             "code": "323-ФЗ", "article": "ст. 13",
@@ -215,8 +229,10 @@ def analyze_text(text: str) -> dict:
             "is_violation": False,
         })
 
-    # ============ ПРАВИЛО 8. Врачебная тайна + «по секрету» ============
-    if med_ctx and ("по секрету" in low or "разглас" in low or "скажу" in low) \
+    # ============ ПРАВИЛО 8. Врачебная тайна + «по секрету» / разглашение ============
+    if med_ctx and not ("полици" in low) \
+            and any(w in low for w in ["по секрету", "разглас", "скажу",
+                                       "сообщ", "рассказа", "раскры"]) \
             and not has_consent:
         laws.append({
             "code": "323-ФЗ", "article": "ст. 13",
@@ -240,7 +256,6 @@ def analyze_text(text: str) -> dict:
             })
 
     # ============ ПРАВИЛО 10. Налоговая тайна + конкурент ============
-    tax_ctx = "фнс" in low or "налогов" in low
     if tax_ctx and "конкурент" in low \
             and ("переда" in low or "сообщ" in low or "подтверд" in low) \
             and not has_consent:
@@ -279,12 +294,14 @@ def analyze_text(text: str) -> dict:
             "is_violation": True,
         })
 
-    # ============ ПРАВИЛО 14. ФНС + подтвердила/передала + конкурент ============
-    if "фнс" in low and ("подтверд" in low or "переда" in low) \
-            and "конкурент" in low:
+    # ============ ПРАВИЛО 14. ФНС + подтвердила + личный источник ============
+    if "фнс" in low and "подтверд" in low \
+            and "проверк" not in low and "запрос" not in low \
+            and personal_source:
         laws.append({
             "code": "146-ФЗ", "article": "ст. 102 НК РФ, ст. 183 УК РФ",
-            "reason": "Косвенная утечка налоговой тайны через сотрудника ФНС",
+            "reason": "Косвенная утечка налоговой тайны через сотрудника ФНС, "
+                      "сообщившего данные личному контакту",
             "is_violation": True,
         })
 
@@ -351,11 +368,13 @@ def analyze_text(text: str) -> dict:
 
     # ============ ИТОГ ============
     violations = [l for l in laws if l["is_violation"]]
+    legal = [l for l in laws if not l["is_violation"]]
+
     if violations:
         vtype = "нарушение"
         action = "mask"
         violation = True
-    elif laws:
+    elif legal:
         vtype = "законное действие"
         action = "nothing"
         violation = False
@@ -371,7 +390,7 @@ def analyze_text(text: str) -> dict:
     # Риск-скор
     risk = 0
     risk += 60 * len(violations)
-    risk += 15 * (len(laws) - len(violations))
+    risk += 15 * len(legal)
     if manual:
         risk = max(risk, 50)
     risk = min(risk, 100)
@@ -380,7 +399,7 @@ def analyze_text(text: str) -> dict:
     if violations:
         codes = ", ".join(sorted({v["code"] for v in violations}))
         summary = f"Обнаружено нарушение: {codes}"
-    elif laws:
+    elif legal:
         summary = "Все действия законны при наличии указанных оснований"
     elif manual:
         summary = "Требуется ручная проверка специалистом"
@@ -442,10 +461,6 @@ def api_analyze_file():
 
 @app.route("/api/action", methods=["POST"])
 def api_action():
-    """
-    Фиксирует действие оператора по инциденту.
-    Body: { "action": "deleted|masked|ignored", "text": "...", "type": "..." }
-    """
     data = request.get_json(silent=True) or {}
     action = data.get("action", "unknown")
     text = data.get("text", "")
